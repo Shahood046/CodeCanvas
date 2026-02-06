@@ -1,0 +1,5 @@
+{
+  "name": "CodeCanvas AI",
+  "description": "Convert hand-drawn diagrams and flowcharts into production-ready code using Gemini Vision.",
+  "requestFramePermissions": []
+}
