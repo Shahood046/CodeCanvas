@@ -823,41 +823,26 @@ export const refineCode = async (currentCode: string, mode: AppMode, instruction
   let systemPrompt = "";
   let userPrompt = "";
 
-  if (mode === 'ui') {
-    systemPrompt = `You are a Strict React/Tailwind developer. Modify the code based on the user's request. 
+  if (mode === 'ui' || mode === 'replica') {
+    systemPrompt = `You are an expert React developer. Your task is to modify the existing React code according to the user's instruction.
+
+Rules:
+1. Maintain the component structure - it must be named "App"
+2. Keep the same overall architecture unless explicitly asked to change it
+3. Use React hooks and modern patterns
+4. Return the complete, modified code
+
+Output the modified code directly. Start with imports and end with export default App;`;
     
-CRITICAL OUTPUT FORMAT: Return ONLY the complete, executable React component code. Do NOT wrap it in JSON. Do NOT add explanatory text.
-- Start directly with: import React...
-- MUST include: function App() { ... }
-- End with: export default App;
-- STRICTNESS: Do NOT add unrelated components. Export 'App' as default.
+    userPrompt = `Here is the current code:
 
-Example structure:
-import React, { useState } from 'react';
+\`\`\`jsx
+${currentCode}
+\`\`\`
 
-function App() {
-  return <div>...</div>;
-}
+User wants this change: ${instruction}
 
-export default App;`;
-    userPrompt = `CURRENT CODE:\n${currentCode}\n\nUSER INSTRUCTION:\n${instruction}\n\nReturn ONLY the modified code, no JSON, no explanations.`;
-  } else if (mode === 'replica') {
-    systemPrompt = `You are a Visual Replica Engineer. Modify the code. Maintain pixel-perfect layout. Export 'App' as default.
-    
-CRITICAL OUTPUT FORMAT: Return ONLY the complete, executable React component code. Do NOT wrap it in JSON. Do NOT add explanatory text.
-- Start directly with: import React...
-- MUST include: function App() { ... }
-- End with: export default App;
-
-Example structure:
-import React, { useState } from 'react';
-
-function App() {
-  return <div>...</div>;
-}
-
-export default App;`;
-    userPrompt = `CURRENT CODE:\n${currentCode}\n\nUSER INSTRUCTION:\n${instruction}\n\nReturn ONLY the modified code, no JSON, no explanations.`;
+Return the complete modified code:`;
   } else {
     systemPrompt = "You are a Senior DevOps engineer. Modify the infrastructure. Update BOTH docker-compose and Mermaid. Return JSON object.";
     userPrompt = `CURRENT CONFIG (JSON):\n${currentCode}\n\nUSER INSTRUCTION:\n${instruction}`;
@@ -870,47 +855,66 @@ export default App;`;
     ]);
 
     const response = await result.response;
-    let text = response.text();
+    let text = response.text().trim();
     
     if (mode === 'devops') {
         text = extractJSON(text.replace(/```json/g, '').replace(/```/g, ''));
-    } else {
-        // For UI and replica modes, extract code properly
-        text = text.trim();
-        
-        // Remove markdown code blocks if present
-        text = text.replace(/```(?:jsx?|tsx?|javascript|typescript|react)?\n/g, '').replace(/```$/g, '').trim();
-        
-        // Check if AI returned JSON despite instructions
-        try {
-          if (text.startsWith('{') && text.includes('"code"')) {
-            const parsed = JSON.parse(text);
-            if (parsed.code) {
-              text = parsed.code;
-            }
-          }
-        } catch (e) {
-          // Not JSON, continue with raw text
-        }
-        
-        // Validate that App component exists
-        const hasAppFunction = /function\s+App\s*\(/.test(text);
-        const hasAppArrow = /const\s+App\s*=.*=>\s*{/.test(text) || /const\s+App\s*=.*=>\s*\(/.test(text);
-        const hasDefaultExport = /export\s+default\s+App/.test(text);
-        
-        if (!hasAppFunction && !hasAppArrow) {
-          console.error('[Refinement] AI returned code without App component. Falling back to original.');
-          throw new Error('AI returned invalid code without App component');
-        }
-        
-        // Ensure export default App exists
-        if (!hasDefaultExport) {
-          if (!text.trim().endsWith('export default App;')) {
-            text = text.trim() + '\n\nexport default App;';
-          }
-        }
+        return cleanCodeBlock(text);
     }
     
-    return cleanCodeBlock(text);
+    // For UI and replica modes, robust code extraction
+    
+    // Step 1: Remove markdown code blocks
+    text = text.replace(/```(?:jsx?|tsx?|javascript|typescript|react)?\n?/g, '').replace(/```\s*$/g, '').trim();
+    
+    // Step 2: Check if response is JSON or error message
+    if (text.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(text);
+        
+        // Handle error messages from AI
+        if (parsed.error) {
+          console.warn('[Refinement] AI returned error:', parsed.error);
+          // Fall back to original code
+          return currentCode;
+        }
+        
+        // Extract code from JSON wrapper
+        if (parsed.code) {
+          text = parsed.code;
+        } else {
+          console.error('[Refinement] JSON response missing code property');
+          return currentCode;
+        }
+      } catch (e) {
+        // Not valid JSON, check if it looks like code or error
+        if (!text.includes('import') && !text.includes('function')) {
+          console.error('[Refinement] Response is neither valid JSON nor code');
+          return currentCode;
+        }
+        // Continue - might be code that starts with destructuring
+      }
+    }
+    
+    // Step 3: Clean the code
+    text = cleanCodeBlock(text);
+    
+    // Step 4: Validate the code has essential React structure
+    const hasImport = /import\s+.*\s+from/.test(text);
+    const hasAppFunction = /function\s+App\s*\(/.test(text);
+    const hasAppArrow = /const\s+App\s*=/.test(text);
+    const hasReturn = /return\s+[(<]/.test(text);
+    
+    if (!hasImport || (!hasAppFunction && !hasAppArrow) || !hasReturn) {
+      console.error('[Refinement] AI returned incomplete code. Using original.');
+      return currentCode;
+    }
+    
+    // Step 5: Ensure export exists
+    if (!/export\s+default\s+App/.test(text)) {
+      text = text.trim() + '\n\nexport default App;';
+    }
+    
+    return text;
   });
 };
