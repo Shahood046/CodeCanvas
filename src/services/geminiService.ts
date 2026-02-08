@@ -867,7 +867,26 @@ Return the complete modified code:`;
     // Step 1: Remove markdown code blocks
     text = text.replace(/```(?:jsx?|tsx?|javascript|typescript|react)?\n?/g, '').replace(/```\s*$/g, '').trim();
     
-    // Step 2: Check if response is JSON or error message
+    // Step 2: Check if response is wrapped in a JSON array
+    if (text.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(text);
+        
+        // If it's an array and has at least one element, extract the first item
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          console.log('[Refinement] AI wrapped code in array, extracting first element');
+          text = parsed[0];
+        } else {
+          console.error('[Refinement] Empty array returned, using original code');
+          return currentCode;
+        }
+      } catch (e) {
+        console.error('[Refinement] Failed to parse array response:', e);
+        // Continue with original text - might be code that happens to start with [
+      }
+    }
+    
+    // Step 3: Check if response is JSON object or error message
     if (text.startsWith('{')) {
       try {
         const parsed = JSON.parse(text);
@@ -896,10 +915,10 @@ Return the complete modified code:`;
       }
     }
     
-    // Step 3: Clean the code
+    // Step 4: Clean the code
     text = cleanCodeBlock(text);
     
-    // Step 4: Validate the code has essential React structure
+    // Step 5: Validate the code has essential React structure
     const hasImport = /import\s+.*\s+from/.test(text);
     const hasAppFunction = /function\s+App\s*\(/.test(text);
     const hasAppArrow = /const\s+App\s*=/.test(text);
@@ -910,7 +929,7 @@ Return the complete modified code:`;
       return currentCode;
     }
     
-    // Step 5: Ensure export exists
+    // Step 6: Ensure export exists
     if (!/export\s+default\s+App/.test(text)) {
       text = text.trim() + '\n\nexport default App;';
     }
