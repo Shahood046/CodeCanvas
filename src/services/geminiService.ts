@@ -824,11 +824,20 @@ export const refineCode = async (currentCode: string, mode: AppMode, instruction
   let userPrompt = "";
 
   if (mode === 'ui') {
-    systemPrompt = "You are a Strict React/Tailwind developer. Modify the code based on the user's request. STRICTNESS: Do NOT add unrelated components. Export 'App' as default.";
-    userPrompt = `CURRENT CODE:\n${currentCode}\n\nUSER INSTRUCTION:\n${instruction}`;
+    systemPrompt = `You are a Strict React/Tailwind developer. Modify the code based on the user's request. 
+    
+CRITICAL OUTPUT FORMAT: Return ONLY the complete, executable React component code. Do NOT wrap it in JSON. Do NOT add explanatory text.
+- Start directly with: import React...
+- End with: export default App;
+- STRICTNESS: Do NOT add unrelated components. Export 'App' as default.`;
+    userPrompt = `CURRENT CODE:\n${currentCode}\n\nUSER INSTRUCTION:\n${instruction}\n\nReturn ONLY the modified code, no JSON, no explanations.`;
   } else if (mode === 'replica') {
-    systemPrompt = "You are a Visual Replica Engineer. Modify the code. Maintain pixel-perfect layout. Export 'App' as default.";
-    userPrompt = `CURRENT CODE:\n${currentCode}\n\nUSER INSTRUCTION:\n${instruction}`;
+    systemPrompt = `You are a Visual Replica Engineer. Modify the code. Maintain pixel-perfect layout. Export 'App' as default.
+    
+CRITICAL OUTPUT FORMAT: Return ONLY the complete, executable React component code. Do NOT wrap it in JSON. Do NOT add explanatory text.
+- Start directly with: import React...
+- End with: export default App;`;
+    userPrompt = `CURRENT CODE:\n${currentCode}\n\nUSER INSTRUCTION:\n${instruction}\n\nReturn ONLY the modified code, no JSON, no explanations.`;
   } else {
     systemPrompt = "You are a Senior DevOps engineer. Modify the infrastructure. Update BOTH docker-compose and Mermaid. Return JSON object.";
     userPrompt = `CURRENT CONFIG (JSON):\n${currentCode}\n\nUSER INSTRUCTION:\n${instruction}`;
@@ -845,6 +854,20 @@ export const refineCode = async (currentCode: string, mode: AppMode, instruction
     
     if (mode === 'devops') {
         text = extractJSON(text.replace(/```json/g, '').replace(/```/g, ''));
+    } else {
+        // For UI and replica modes, check if AI returned JSON despite instructions
+        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        try {
+          // Check if response is JSON with a "code" property
+          if (text.startsWith('{') && text.includes('"code"')) {
+            const parsed = JSON.parse(text);
+            if (parsed.code) {
+              text = parsed.code;
+            }
+          }
+        } catch (e) {
+          // Not JSON, continue with raw text
+        }
     }
     return cleanCodeBlock(text);
   });
