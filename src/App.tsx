@@ -311,6 +311,11 @@ const App: React.FC = () => {
 
       const refinedOutput = await refineCode(currentCodeInput, mode, instruction);
 
+      // Validate refinement output before updating state
+      if (!refinedOutput || refinedOutput.trim().length === 0) {
+        throw new Error('AI returned empty refinement');
+      }
+
       setResult(prev => {
         if (!prev) return null;
         
@@ -339,13 +344,19 @@ const App: React.FC = () => {
                 explanation: "Updated based on refinement request."
              };
           } catch (e) {
-             console.error("Failed to parse refined DevOps JSON. Fallback to raw string if applicable.", e);
+             console.error("Failed to parse refined DevOps JSON. Keeping original.", e);
+             // Don't update if parsing failed
              return prev;
           }
         }
       });
     } catch (err: any) {
       console.error("Refinement failed:", err);
+      // Show error to user
+      setError(`Refinement failed: ${err.message || 'AI returned invalid code'}. Please try rephrasing your request.`);
+      
+      // Auto-clear error after 5 seconds
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsRefining(false);
     }

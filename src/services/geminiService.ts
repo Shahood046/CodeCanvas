@@ -828,15 +828,35 @@ export const refineCode = async (currentCode: string, mode: AppMode, instruction
     
 CRITICAL OUTPUT FORMAT: Return ONLY the complete, executable React component code. Do NOT wrap it in JSON. Do NOT add explanatory text.
 - Start directly with: import React...
+- MUST include: function App() { ... }
 - End with: export default App;
-- STRICTNESS: Do NOT add unrelated components. Export 'App' as default.`;
+- STRICTNESS: Do NOT add unrelated components. Export 'App' as default.
+
+Example structure:
+import React, { useState } from 'react';
+
+function App() {
+  return <div>...</div>;
+}
+
+export default App;`;
     userPrompt = `CURRENT CODE:\n${currentCode}\n\nUSER INSTRUCTION:\n${instruction}\n\nReturn ONLY the modified code, no JSON, no explanations.`;
   } else if (mode === 'replica') {
     systemPrompt = `You are a Visual Replica Engineer. Modify the code. Maintain pixel-perfect layout. Export 'App' as default.
     
 CRITICAL OUTPUT FORMAT: Return ONLY the complete, executable React component code. Do NOT wrap it in JSON. Do NOT add explanatory text.
 - Start directly with: import React...
-- End with: export default App;`;
+- MUST include: function App() { ... }
+- End with: export default App;
+
+Example structure:
+import React, { useState } from 'react';
+
+function App() {
+  return <div>...</div>;
+}
+
+export default App;`;
     userPrompt = `CURRENT CODE:\n${currentCode}\n\nUSER INSTRUCTION:\n${instruction}\n\nReturn ONLY the modified code, no JSON, no explanations.`;
   } else {
     systemPrompt = "You are a Senior DevOps engineer. Modify the infrastructure. Update BOTH docker-compose and Mermaid. Return JSON object.";
@@ -855,10 +875,14 @@ CRITICAL OUTPUT FORMAT: Return ONLY the complete, executable React component cod
     if (mode === 'devops') {
         text = extractJSON(text.replace(/```json/g, '').replace(/```/g, ''));
     } else {
-        // For UI and replica modes, check if AI returned JSON despite instructions
-        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        // For UI and replica modes, extract code properly
+        text = text.trim();
+        
+        // Remove markdown code blocks if present
+        text = text.replace(/```(?:jsx?|tsx?|javascript|typescript|react)?\n/g, '').replace(/```$/g, '').trim();
+        
+        // Check if AI returned JSON despite instructions
         try {
-          // Check if response is JSON with a "code" property
           if (text.startsWith('{') && text.includes('"code"')) {
             const parsed = JSON.parse(text);
             if (parsed.code) {
@@ -868,7 +892,25 @@ CRITICAL OUTPUT FORMAT: Return ONLY the complete, executable React component cod
         } catch (e) {
           // Not JSON, continue with raw text
         }
+        
+        // Validate that App component exists
+        const hasAppFunction = /function\s+App\s*\(/.test(text);
+        const hasAppArrow = /const\s+App\s*=.*=>\s*{/.test(text) || /const\s+App\s*=.*=>\s*\(/.test(text);
+        const hasDefaultExport = /export\s+default\s+App/.test(text);
+        
+        if (!hasAppFunction && !hasAppArrow) {
+          console.error('[Refinement] AI returned code without App component. Falling back to original.');
+          throw new Error('AI returned invalid code without App component');
+        }
+        
+        // Ensure export default App exists
+        if (!hasDefaultExport) {
+          if (!text.trim().endsWith('export default App;')) {
+            text = text.trim() + '\n\nexport default App;';
+          }
+        }
     }
+    
     return cleanCodeBlock(text);
   });
 };
